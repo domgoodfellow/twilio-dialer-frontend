@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Device, Call } from '@twilio/voice-sdk';
 import { Phone, PhoneOff, LogOut } from 'lucide-react';
+import CallLog from './CallLog';
 
 type Status = 'connecting' | 'ready' | 'calling' | 'on-call' | 'error';
 
@@ -8,8 +9,12 @@ export default function Dialer({ supabase, session }: { supabase: any; session: 
   const [phoneNumber, setPhoneNumber] = useState('');
   const [status, setStatus] = useState<Status>('connecting');
   const [statusMessage, setStatusMessage] = useState('Connecting to Twilio...');
+  const [detectedProvince, setDetectedProvince] = useState<string | null>(null);
+  const [callerNumber, setCallerNumber] = useState<string | null>(null);
   const deviceRef = useRef<Device | null>(null);
   const callRef = useRef<Call | null>(null);
+  const callLogIdRef = useRef<string | null>(null);
+  const callStartRef = useRef<number>(0);
 
   useEffect(() => {
     let device: Device;
@@ -54,11 +59,67 @@ export default function Dialer({ supabase, session }: { supabase: any; session: 
     };
   }, [session]);
 
+  // Debounced province detection when phone number changes
+  useEffect(() => {
+    const digits = phoneNumber.replace(/\D/g, '');
+    if (digits.length < 10) {
+      setDetectedProvince(null);
+      setCallerNumber(null);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `${import.meta.env.VITE_BACKEND_URL}/api/detect-province?number=${encodeURIComponent(phoneNumber)}`
+        );
+        const data = await res.json();
+        setDetectedProvince(data.province);
+        setCallerNumber(data.callerNumber);
+      } catch {
+        setDetectedProvince(null);
+        setCallerNumber(null);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [phoneNumber]);
+
+  async function updateCallLog(newStatus: string) {
+    if (!callLogIdRef.current) return;
+    await supabase
+      .from('call_logs')
+      .update({
+        status: newStatus,
+        duration_seconds: Math.round((Date.now() - callStartRef.current) / 1000),
+      })
+      .eq('id', callLogIdRef.current);
+    callLogIdRef.current = null;
+  }
+
   const handleCall = async () => {
     if (!deviceRef.current || !phoneNumber.trim()) return;
     setStatus('calling');
     setStatusMessage(`Calling ${phoneNumber}...`);
     try {
+      // Insert call log entry before connecting
+      const { data: logData } = await supabase
+        .from('call_logs')
+        .insert({
+          user_id: session.user.id,
+          to_number: phoneNumber.trim(),
+          from_number: callerNumber,
+          province: detectedProvince,
+          status: 'initiated',
+        })
+        .select()
+        .single();
+
+      if (logData) {
+        callLogIdRef.current = logData.id;
+        callStartRef.current = Date.now();
+      }
+
       const call = await deviceRef.current.connect({ params: { To: phoneNumber.trim() } });
       callRef.current = call;
       call.on('accept', () => {
@@ -69,10 +130,12 @@ export default function Dialer({ supabase, session }: { supabase: any; session: 
         setStatus('ready');
         setStatusMessage('Call ended');
         callRef.current = null;
+        updateCallLog('completed');
       });
     } catch (err: any) {
       setStatus('error');
       setStatusMessage(`Call failed: ${err.message}`);
+      updateCallLog('failed');
     }
   };
 
@@ -115,16 +178,28 @@ export default function Dialer({ supabase, session }: { supabase: any; session: 
           <p className={`text-sm font-medium ${statusColor[status]}`}>{statusMessage}</p>
         </div>
 
-        {/* Phone input */}
-        <input
-          type="tel"
-          value={phoneNumber}
-          onChange={(e) => setPhoneNumber(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && canCall && handleCall()}
-          placeholder="+1 555 000 0000"
-          disabled={isOnCall}
-          className="w-full bg-zinc-800 p-4 rounded-xl text-lg tracking-wider disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-green-600"
-        />
+        {/* Phone input + province indicator */}
+        <div className="space-y-1">
+          <input
+            type="tel"
+            value={phoneNumber}
+            onChange={(e) => setPhoneNumber(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && canCall && handleCall()}
+            placeholder="+1 555 000 0000"
+            disabled={isOnCall}
+            className="w-full bg-zinc-800 p-4 rounded-xl text-lg tracking-wider disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-green-600"
+          />
+          {detectedProvince ? (
+            <p className="text-xs text-zinc-400 px-1">
+              Province: <span className="text-white font-medium">{detectedProvince}</span>
+              {callerNumber && (
+                <> &mdash; Calling from: <span className="text-green-400 font-mono">{callerNumber}</span></>
+              )}
+            </p>
+          ) : phoneNumber.replace(/\D/g, '').length >= 10 ? (
+            <p className="text-xs text-zinc-500 px-1">No provincial number configured — using default</p>
+          ) : null}
+        </div>
 
         {/* Call / Hangup button */}
         {!isOnCall ? (
@@ -145,6 +220,9 @@ export default function Dialer({ supabase, session }: { supabase: any; session: 
             Hang Up
           </button>
         )}
+
+        {/* Call history */}
+        <CallLog supabase={supabase} userId={session.user.id} />
       </div>
     </div>
   );
