@@ -18,7 +18,12 @@ export default function Dialer({ supabase, session }: { supabase: any; session: 
       try {
         const identity = session?.user?.email ?? 'agent';
         const res = await fetch(
-          `${import.meta.env.VITE_BACKEND_URL}/token?identity=${encodeURIComponent(identity)}`
+          `${import.meta.env.VITE_BACKEND_URL}/api/token`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ identity }),
+          }
         );
         if (!res.ok) throw new Error(`Token fetch failed: ${res.status}`);
         const { token } = await res.json();
