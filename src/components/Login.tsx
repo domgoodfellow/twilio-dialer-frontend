@@ -1,8 +1,8 @@
 import { useState } from 'react';
 
 export default function Login({ supabase }: { supabase: any }) {
-  const [email, setEmail] = useState('test@twiliodialer.com');
-  const [password, setPassword] = useState('TestPass123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -50,9 +50,6 @@ export default function Login({ supabase }: { supabase: any }) {
           </button>
         </form>
         
-        <p className="text-center text-zinc-500 mt-6 text-sm">
-          Test user: test@twiliodialer.com / TestPass123
-        </p>
       </div>
     </div>
   );
