@@ -30,22 +30,13 @@ export default function Dialer({ supabase, session }: { supabase: any; session: 
 
         device = new Device(token, { logLevel: 1 });
 
-        device.on('ready', () => {
+        device.on('registered', () => {
           setStatus('ready');
           setStatusMessage('Ready');
         });
         device.on('error', (err: Error) => {
           setStatus('error');
           setStatusMessage(`Error: ${err.message}`);
-        });
-        device.on('connect', () => {
-          setStatus('on-call');
-          setStatusMessage('On call');
-        });
-        device.on('disconnect', () => {
-          setStatus('ready');
-          setStatusMessage('Call ended');
-          callRef.current = null;
         });
 
         await device.register();
@@ -70,6 +61,10 @@ export default function Dialer({ supabase, session }: { supabase: any; session: 
     try {
       const call = await deviceRef.current.connect({ params: { To: phoneNumber.trim() } });
       callRef.current = call;
+      call.on('accept', () => {
+        setStatus('on-call');
+        setStatusMessage('On call');
+      });
       call.on('disconnect', () => {
         setStatus('ready');
         setStatusMessage('Call ended');
