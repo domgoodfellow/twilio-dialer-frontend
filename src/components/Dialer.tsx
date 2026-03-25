@@ -57,7 +57,7 @@ export default function Dialer({ supabase, session }: { supabase: any; session: 
     return () => {
       device?.destroy();
     };
-  }, [session]);
+  }, [session?.user?.id]);
 
   // Debounced province detection when phone number changes
   useEffect(() => {
