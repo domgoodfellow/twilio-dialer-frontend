@@ -5,6 +5,30 @@ import CallLog from './CallLog';
 
 type Status = 'connecting' | 'ready' | 'calling' | 'on-call' | 'error';
 
+function formatPhoneNumber(value: string): string {
+  const digits = value.replace(/\D/g, '');
+
+  // 11 digits starting with 1 → +1 (XXX) XXX-XXXX
+  if (digits.length > 10 && digits.startsWith('1')) {
+    const d = digits.slice(1, 11);
+    if (d.length <= 3) return `+1 (${d}`;
+    if (d.length <= 6) return `+1 (${d.slice(0, 3)}) ${d.slice(3)}`;
+    return `+1 (${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+  }
+
+  const d = digits.slice(0, 10);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+}
+
+function toE164(phoneNumber: string): string {
+  const digits = phoneNumber.replace(/\D/g, '');
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+  return phoneNumber;
+}
+
 export default function Dialer({ supabase, session }: { supabase: any; session: any }) {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [status, setStatus] = useState<Status>('connecting');
@@ -99,6 +123,7 @@ export default function Dialer({ supabase, session }: { supabase: any; session: 
 
   const handleCall = async () => {
     if (!deviceRef.current || !phoneNumber.trim()) return;
+    const to = toE164(phoneNumber);
     setStatus('calling');
     setStatusMessage(`Calling ${phoneNumber}...`);
     try {
@@ -107,7 +132,7 @@ export default function Dialer({ supabase, session }: { supabase: any; session: 
         .from('call_logs')
         .insert({
           user_id: session.user.id,
-          to_number: phoneNumber.trim(),
+          to_number: to,
           from_number: callerNumber,
           province: detectedProvince,
           status: 'initiated',
@@ -120,7 +145,7 @@ export default function Dialer({ supabase, session }: { supabase: any; session: 
         callStartRef.current = Date.now();
       }
 
-      const call = await deviceRef.current.connect({ params: { To: phoneNumber.trim() } });
+      const call = await deviceRef.current.connect({ params: { To: to } });
       callRef.current = call;
       call.on('accept', () => {
         setStatus('on-call');
@@ -147,7 +172,7 @@ export default function Dialer({ supabase, session }: { supabase: any; session: 
   const handleLogout = () => supabase.auth.signOut();
 
   const isOnCall = status === 'on-call' || status === 'calling';
-  const canCall = status === 'ready' && phoneNumber.trim().length > 0;
+  const canCall = status === 'ready' && phoneNumber.replace(/\D/g, '').length >= 10;
 
   const statusColor: Record<Status, string> = {
     connecting: 'text-yellow-400',
@@ -183,9 +208,9 @@ export default function Dialer({ supabase, session }: { supabase: any; session: 
           <input
             type="tel"
             value={phoneNumber}
-            onChange={(e) => setPhoneNumber(e.target.value)}
+            onChange={(e) => setPhoneNumber(formatPhoneNumber(e.target.value))}
             onKeyDown={(e) => e.key === 'Enter' && canCall && handleCall()}
-            placeholder="+1 555 000 0000"
+            placeholder="(514) 555-5555"
             disabled={isOnCall}
             className="w-full bg-zinc-800 p-4 rounded-xl text-lg tracking-wider disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-green-600"
           />
